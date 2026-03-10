@@ -5,7 +5,7 @@ if [ -f "$HOME/.secrets" ]; then
 fi
 
 
-# 1. Check arguments
+# Check arguments
 if [ "$#" -lt 3 ]; then
   echo "Not enough arguments (expected >= 3, got $#)." >&2
   exit 1
@@ -13,7 +13,7 @@ fi
 
 Mode=""
 
-# 2. Select mode based on the first flag
+# Select mode based on the first flag
 case "$1" in
   -c)
     Mode="Coding mode"
@@ -30,14 +30,13 @@ case "$1" in
     ;;
 esac
 
-# 3. Shift the flag out so $1 becomes the Context
 shift
 
 CONTEXT="$1"
 TASK="$2"
 WORK="${3:-}"
 
-# 4. Construct the readable User Prompt
+# Construct the readable User Prompt
 USER_PROMPT="Task: ${TASK}
 Language/tool: ${CONTEXT}"
 
@@ -48,7 +47,7 @@ Code:
 ${WORK}"
 fi
 
-# 5. Build the JSON payload safely using jq
+# Build the JSON payload safely using jq
 PAYLOAD=$(jq -n \
   --arg sys "You are an expert assistant operating in ${Mode}. Provide clear, concise answers." \
   --arg usr "$USER_PROMPT" \
@@ -69,7 +68,7 @@ PAYLOAD=$(jq -n \
   }')
 
 
-# 6. Stream the response and capture citations
+# Stream the response and capture citations
 CITATIONS=""
 
 curl -s -N -X POST https://api.perplexity.ai/chat/completions \
@@ -95,10 +94,8 @@ while read -r line; do
   if [[ "$line" == data:* ]]; then
     json_data="${line#data: }"
     
-    # NEW: Check if this chunk contains citations and format them
     chunk_citations=$(echo "$json_data" | jq -r 'if .citations and (.citations | length > 0) then to_entries | .[] | "[\(.key + 1)] \(.value)" else empty end' 2>/dev/null)
     
-    # If we found citations in this chunk, save them to our variable
     if [ -n "$chunk_citations" ]; then
         CITATIONS="$chunk_citations"
     fi
@@ -112,7 +109,7 @@ done | sed -u -e 's/```/___TBT___/g' \
              -e "s/##* \(.*\)/$(tput setaf 5; tput bold)\1$(tput sgr0)/g" \
              -e "s/___TBT___/$(tput setaf 3)\`\`\`$(tput sgr0)/g"
 
-# 7. Print the Citations at the end (only if they were found)
+# Print the Citations
 if [ -n "$CITATIONS" ]; then
   echo -e "\n$(tput setaf 4)Sources:$(tput sgr0)"
   echo "$CITATIONS"
