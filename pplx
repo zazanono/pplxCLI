@@ -68,8 +68,9 @@ PAYLOAD=$(jq -n \
     ]
   }')
 
-# 6. Stream the response and capture the last chunk for citations
-last_json=""
+
+# 6. Stream the response and capture citations
+CITATIONS=""
 
 curl -s -N -X POST https://api.perplexity.ai/chat/completions \
   -H "Authorization: Bearer $PPLX_KEY" \
@@ -93,10 +94,17 @@ while read -r line; do
 
   if [[ "$line" == data:* ]]; then
     json_data="${line#data: }"
-    last_json="$json_data" # Save the json to extract citations later
     
-    # Extract text and colorize on the fly
-    echo "$json_data" | jq -r -j '.choices[0].delta.content // empty'
+    # NEW: Check if this chunk contains citations and format them
+    chunk_citations=$(echo "$json_data" | jq -r 'if .citations and (.citations | length > 0) then to_entries | .[] | "[\(.key + 1)] \(.value)" else empty end' 2>/dev/null)
+    
+    # If we found citations in this chunk, save them to our variable
+    if [ -n "$chunk_citations" ]; then
+        CITATIONS="$chunk_citations"
+    fi
+    
+    # Extract text
+    echo "$json_data" | jq --unbuffered -r -j '.choices[0].delta.content // empty'
   fi
 done | sed -u -e 's/```/___TBT___/g' \
              -e "s/\*\*\([^*]*\)\*\*/$(tput bold)\1$(tput sgr0)/g" \
@@ -104,14 +112,11 @@ done | sed -u -e 's/```/___TBT___/g' \
              -e "s/##* \(.*\)/$(tput setaf 5; tput bold)\1$(tput sgr0)/g" \
              -e "s/___TBT___/$(tput setaf 3)\`\`\`$(tput sgr0)/g"
 
-
-# 7. Extract and Print the Citations at the end (only if they exist)
-CITATIONS=$(echo "$last_json" | jq -r 'if .citations and (.citations | length > 0) then to_entries | .[] | "[\(.key + 1)] \(.value)" else empty end')
-
-# Check if the CITATIONS variable is not empty
+# 7. Print the Citations at the end (only if they were found)
 if [ -n "$CITATIONS" ]; then
   echo -e "\n$(tput setaf 4)Sources:$(tput sgr0)"
   echo "$CITATIONS"
 fi
 
 echo ""
+
