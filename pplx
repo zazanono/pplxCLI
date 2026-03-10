@@ -1,15 +1,19 @@
 #!/bin/bash
 
+if [ -f "$HOME/.secrets" ]; then
+  source "$HOME/.secrets"
+fi
+
+
+# 1. Check arguments
 if [ "$#" -lt 3 ]; then
   echo "Not enough arguments (expected >= 3, got $#)." >&2
   exit 1
 fi
 
-echo "$PPLX_KEY"
-
-
 Mode=""
 
+# 2. Select mode based on the first flag
 case "$1" in
   -c)
     Mode="Coding mode"
@@ -26,11 +30,64 @@ case "$1" in
     ;;
 esac
 
-echo "$Mode"
+# 3. Shift the flag out so $1 becomes the Context
 shift
 
 CONTEXT="$1"
 TASK="$2"
 WORK="${3:-}"
 
+# 4. Construct the readable User Prompt
+USER_PROMPT="Task: ${TASK}
+Language/tool: ${CONTEXT}"
+
+if [ -n "$WORK" ]; then
+  USER_PROMPT="${USER_PROMPT}
+
+Code:
+${WORK}"
+fi
+
+# 5. Build the JSON payload safely using jq
+PAYLOAD=$(jq -n \
+  --arg sys "You are an expert assistant operating in ${Mode}. Provide clear, concise answers." \
+  --arg usr "$USER_PROMPT" \
+  '{
+    "model": "sonar",
+    "stream": true,
+    "messages": [
+      {
+        "role": "system",
+        "content": $sys
+      },
+      {
+        "role": "user",
+        "content": $usr
+      }
+    ]
+  }')
+
+# 6. Stream the response from the API
+curl -s -N -X POST https://api.perplexity.ai/chat/completions \
+  -H "Authorization: Bearer $PPLX_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" | \
+while read -r line; do
+  # Skip empty lines
+  if [[ -z "$line" ]]; then
+    continue
+  fi
+
+  # Catch the end of the stream and print a final newline
+  if [[ "$line" == "data: [DONE]" ]]; then
+    echo ""
+    break
+  fi
+
+  # Extract and print the content tokens
+  if [[ "$line" == data:* ]]; then
+    json_data="${line#data: }"
+    echo "$json_data" | jq -r -j '.choices[0].delta.content // empty'
+  fi
+done
 
