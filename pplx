@@ -1,0 +1,36 @@
+#!/bin/bash
+
+if [ "$#" -lt 3 ]; then
+  echo "Not enough arguments (expected >= 3, got $#)." >&2
+  exit 1
+fi
+
+echo "$PPLX_KEY"
+
+
+Mode=""
+
+case "$1" in
+  -c)
+    Mode="Coding mode"
+    ;;
+  -d)
+    Mode="Debugging mode"
+    ;;
+  -e)
+    Mode="explain mode"
+    ;;
+  *)
+    echo "Error selecting mode (expected -c/-d/-e)" >&2
+    exit 1
+    ;;
+esac
+
+echo "$Mode"
+shift
+
+CONTEXT="$1"
+TASK="$2"
+WORK="${3:-}"
+
+
