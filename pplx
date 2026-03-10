@@ -55,6 +55,7 @@ PAYLOAD=$(jq -n \
   '{
     "model": "sonar",
     "stream": true,
+    "return_citations": true, 
     "messages": [
       {
         "role": "system",
@@ -67,27 +68,50 @@ PAYLOAD=$(jq -n \
     ]
   }')
 
-# 6. Stream the response from the API
+# 6. Stream the response and capture the last chunk for citations
+last_json=""
+
 curl -s -N -X POST https://api.perplexity.ai/chat/completions \
   -H "Authorization: Bearer $PPLX_KEY" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" | \
 while read -r line; do
-  # Skip empty lines
   if [[ -z "$line" ]]; then
     continue
   fi
 
-  # Catch the end of the stream and print a final newline
+  if [[ "$line" == *'"error"'* ]] && [[ "$line" != data:* ]]; then
+    echo -e "\nAPI Error Detected:" >&2
+    echo "$line" | jq '.' 2>/dev/null || echo "$line"
+    exit 1
+  fi
+
   if [[ "$line" == "data: [DONE]" ]]; then
-    echo ""
+    echo "" # Print a final newline for the text stream
     break
   fi
 
-  # Extract and print the content tokens
   if [[ "$line" == data:* ]]; then
     json_data="${line#data: }"
+    last_json="$json_data" # Save the json to extract citations later
+    
+    # Extract text and colorize on the fly
     echo "$json_data" | jq -r -j '.choices[0].delta.content // empty'
   fi
-done
+done | sed -u -e 's/```/___TBT___/g' \
+             -e "s/\*\*\([^*]*\)\*\*/$(tput bold)\1$(tput sgr0)/g" \
+             -e "s/\`\([^\`]*\)\`/$(tput setaf 6)\1$(tput sgr0)/g" \
+             -e "s/##* \(.*\)/$(tput setaf 5; tput bold)\1$(tput sgr0)/g" \
+             -e "s/___TBT___/$(tput setaf 3)\`\`\`$(tput sgr0)/g"
 
+
+# 7. Extract and Print the Citations at the end (only if they exist)
+CITATIONS=$(echo "$last_json" | jq -r 'if .citations and (.citations | length > 0) then to_entries | .[] | "[\(.key + 1)] \(.value)" else empty end')
+
+# Check if the CITATIONS variable is not empty
+if [ -n "$CITATIONS" ]; then
+  echo -e "\n$(tput setaf 4)Sources:$(tput sgr0)"
+  echo "$CITATIONS"
+fi
+
+echo ""
